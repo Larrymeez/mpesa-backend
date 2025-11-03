@@ -130,11 +130,28 @@ app.post("/api/newsletter", async (req, res) => {
   createContact.attributes = { FIRSTNAME: email.split("@")[0] };
 
   try {
-    // ✅ Step 1: Try adding subscriber
+    // ✅ Step 0: Check if contact already exists
+    try {
+      const existing = await apiInstance.getContactInfo(email);
+      console.log("⚠️ Already subscribed:", email);
+      return res.status(200).json({
+        success: true,
+        message: "already subscribed",
+      });
+    } catch (err) {
+      if (err.status !== 404) {
+        // Some other API error
+        console.error("❌ Error checking existing contact:", err);
+        return res.status(500).json({ success: false, message: "Failed to check subscription." });
+      }
+      // Contact does not exist, proceed to create
+    }
+
+    // ✅ Step 1: Create new contact
     const response = await apiInstance.createContact(createContact);
     console.log("✅ New contact created:", response);
 
-    // ✅ Step 2: Send welcome email only for new subscribers (your dope email HTML unchanged)
+    // ✅ Step 2: Send welcome email (your dope HTML unchanged)
     const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
     sendSmtpEmail.sender = { email: process.env.FROM_EMAIL, name: "Ujana na Ujuzi" };
     sendSmtpEmail.to = [{ email, name: email.split("@")[0] }];
@@ -195,23 +212,9 @@ app.post("/api/newsletter", async (req, res) => {
     console.log("📩 Welcome email sent to:", email);
 
     return res.json({ success: true, message: "Subscribed successfully!" });
+
   } catch (error) {
-    // ✅ Handle duplicates and other errors properly
-    const body = error.response?.body || {};
-
-    if (
-      body.code === "duplicate_parameter" ||
-      body.message?.toLowerCase().includes("exists") ||
-      body.message?.toLowerCase().includes("duplicate")
-    ) {
-      console.log("⚠️ Already subscribed:", email);
-      return res.status(200).json({
-        success: true,
-        message: "already subscribed",
-      });
-    }
-
-    console.error("❌ Newsletter subscription error:", body);
+    console.error("❌ Newsletter subscription error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to subscribe. Please try again later.",
