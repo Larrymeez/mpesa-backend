@@ -13,7 +13,7 @@ const app = express();
 // =====================
 const allowedOrigins = [
   "http://localhost:5173",       // local dev
-  "https://www.ujananaujuzi.org" // production
+  "https://www.ujananaujuzi.org", // production
    "https://ujana-na-ujuzi.vercel.app"  // Vercel preview
 ];
 
