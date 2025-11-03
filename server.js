@@ -109,13 +109,12 @@ app.post("/api/stkpush", async (req, res) => {
 });
 
 // =====================
-// Newsletter Subscription
+// Newsletter Subscription (robust, non-hanging, duplicate-safe)
 // =====================
 app.post("/api/newsletter", async (req, res) => {
   const { email } = req.body;
-  if (!email) {
+  if (!email)
     return res.status(400).json({ success: false, message: "Email is required" });
-  }
 
   console.log("📨 New subscription request:", email);
 
@@ -125,49 +124,55 @@ app.post("/api/newsletter", async (req, res) => {
   const apiInstance = new SibApiV3Sdk.ContactsApi();
   const transactionalApi = new SibApiV3Sdk.TransactionalEmailsApi();
 
-  const createContact = new SibApiV3Sdk.CreateContact();
-  createContact.email = email;
-  createContact.listIds = [parseInt(process.env.BREVO_LIST_ID)];
-  createContact.updateEnabled = true;
-  createContact.attributes = { FIRSTNAME: email.split("@")[0] };
-
   try {
-    // Use Promise.race to prevent hanging if Brevo is slow
-    const response = await Promise.race([
-      apiInstance.createContact(createContact),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Brevo API timeout")), 10000)
-      )
-    ]);
+    // ✅ Step 1: Check if contact already exists
+    let existingContact;
+    try {
+      existingContact = await apiInstance.getContactInfo(email);
+    } catch (err) {
+      existingContact = null; // not found
+    }
 
-    console.log("✅ New contact created:", response);
+    if (existingContact) {
+      console.log("⚠️ Already subscribed:", email);
+      return res.status(200).json({
+        success: true,
+        message: "You’re already subscribed to our newsletter!",
+      });
+    }
 
-    // Send welcome email only for new subscribers
+    // ✅ Step 2: Create new contact
+    const createContact = new SibApiV3Sdk.CreateContact();
+    createContact.email = email;
+    createContact.listIds = [parseInt(process.env.BREVO_LIST_ID)];
+    createContact.updateEnabled = false;
+    createContact.attributes = { FIRSTNAME: email.split("@")[0] };
+
+    const response = await apiInstance.createContact(createContact);
+    console.log("✅ New contact created:", response.id || response.email || response);
+
+    // ✅ Step 3: Send the beautiful welcome email
     const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
     sendSmtpEmail.sender = { email: process.env.FROM_EMAIL, name: "Ujana na Ujuzi" };
     sendSmtpEmail.to = [{ email, name: email.split("@")[0] }];
     sendSmtpEmail.subject = "Welcome to Ujana na Ujuzi!";
-    sendSmtpEmail.htmlContent = `
+    ssendSmtpEmail.htmlContent = `
   <div style="font-family: 'Poppins', Arial, sans-serif; background-color: #ffffff; color: #333; padding: 0; margin: 0;">
     <div style="max-width: 600px; margin: auto; border-radius: 10px; overflow: hidden; border: 1px solid #e5e5e5; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
-      <!-- Header -->
       <div style="background-color: #d32f2f; text-align: center; padding: 20px;">
         <img src="https://www.ujananaujuzi.org/assets/logo.png" alt="Ujana na Ujuzi Logo" style="width: 90px; height: auto; margin-bottom: 10px;" />
         <h1 style="color: #fff; font-size: 26px; margin: 0;">Welcome to Ujana na Ujuzi!</h1>
         <p style="color: #ffeaea; margin: 5px 0 0 0; font-size: 14px;">"In Speech, Conduct and Love"</p>
       </div>
-      <!-- Body -->
       <div style="padding: 25px 20px; background-color: #fff;">
-        <p style="font-size: 16px; line-height: 1.6;">
-          Hi <strong>${email.split("@")[0]}</strong>,
-        </p>
+        <p style="font-size: 16px; line-height: 1.6;">Hi <strong>${email.split("@")[0]}</strong>,</p>
         <p style="font-size: 15px; line-height: 1.6;">
           We're thrilled to have you join our vibrant community of youth looking to make a change! 
           At <strong>Ujana na Ujuzi</strong>, we believe in empowering youth with skills, 
           opportunities, and inspiration to make a difference.
         </p>
         <p style="font-size: 15px; line-height: 1.6;">
-          You’ll now be the first to know about our upcoming <strong>events</strong>, <strong>workshops</strong>, and <strong>training programs</strong>.
+          You’ll now be the first to know about our upcoming <strong>events</strong>, <strong>workshops</strong>, and <strong>training programs</strong> — all designed to help you grow and connect.
         </p>
         <div style="text-align: center; margin-top: 25px;">
           <a href="https://www.ujananaujuzi.org/" 
@@ -179,7 +184,6 @@ app.post("/api/newsletter", async (req, res) => {
           Let’s make impact — together.
         </p>
       </div>
-      <!-- Footer -->
       <div style="background-color: #111; color: #ccc; text-align: center; padding: 15px;">
         <p style="font-size: 12px; margin: 0;">© ${new Date().getFullYear()} Ujana na Ujuzi. All rights reserved.</p>
         <p style="font-size: 12px; margin: 5px 0 0;">Follow us on 
@@ -190,39 +194,25 @@ app.post("/api/newsletter", async (req, res) => {
       </div>
     </div>
   </div>
-`;
+      `;
 
     await transactionalApi.sendTransacEmail(sendSmtpEmail);
     console.log("📩 Welcome email sent to:", email);
 
     return res.json({
       success: true,
-      message: "You’re now subscribed — welcome to the community!"
+      message: "You’re now subscribed — welcome to the community!",
     });
 
   } catch (error) {
     const body = error.response?.body || {};
-
-    if (
-      body.code === "duplicate_parameter" ||
-      body.message?.toLowerCase().includes("exists") ||
-      body.message?.toLowerCase().includes("duplicate")
-    ) {
-      console.log("⚠️ Already subscribed:", email);
-      return res.status(200).json({
-        success: true,
-        message: "You’re already subscribed to our newsletter!"
-      });
-    }
-
     console.error("❌ Newsletter subscription error:", body);
     return res.status(500).json({
       success: false,
-      message: "Failed to subscribe. Please try again later."
+      message: "Failed to subscribe. Please try again later.",
     });
   }
 });
-
 
 
 app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
