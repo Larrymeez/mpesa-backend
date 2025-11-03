@@ -134,7 +134,7 @@ app.post("/api/newsletter", async (req, res) => {
     const response = await apiInstance.createContact(createContact);
     console.log("✅ New contact created:", response);
 
-    // ✅ Step 2: Send welcome email only for new subscribers
+    // ✅ Step 2: Send welcome email only for new subscribers (your dope email HTML unchanged)
     const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
     sendSmtpEmail.sender = { email: process.env.FROM_EMAIL, name: "Ujana na Ujuzi" };
     sendSmtpEmail.to = [{ email, name: email.split("@")[0] }];
@@ -191,13 +191,12 @@ app.post("/api/newsletter", async (req, res) => {
   </div>
 `;
 
-
     await transactionalApi.sendTransacEmail(sendSmtpEmail);
     console.log("📩 Welcome email sent to:", email);
 
     return res.json({ success: true, message: "Subscribed successfully!" });
   } catch (error) {
-    // ✅ Handle duplicate and other errors properly
+    // ✅ Handle duplicates and other errors properly
     const body = error.response?.body || {};
 
     if (
@@ -208,7 +207,7 @@ app.post("/api/newsletter", async (req, res) => {
       console.log("⚠️ Already subscribed:", email);
       return res.status(200).json({
         success: true,
-        message: "You’re already subscribed to our newsletter!",
+        message: "already subscribed",
       });
     }
 
